@@ -38,6 +38,7 @@ def parse(url):  # вызывать эту функцию
                 break
             else:
                 calc += 1
+
         win_ratio = elements.get_text()
         win_ratio = win_ratio[-9::-1]
         win_ratio = win_ratio[::-1]
