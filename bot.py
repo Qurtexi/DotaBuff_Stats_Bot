@@ -16,6 +16,8 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import keyboard as kb
+
 bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
@@ -33,48 +35,48 @@ class Form(StatesGroup):
 
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
-    chat_id = message.from_user.id
-    await bot.send_message(chat_id, "Hi!\nI'm DotaBuff Stats Bot!\nPowered by Qurtexi.")
+    await message.answer("Hi!\nI'm DotaBuff Stats Bot!\nPowered by Qurtexi.",
+                         reply_markup=kb.all_kb)
 
 
 # обработчик команды help
-@dp.message_handler(commands=['help'])
+@dp.message_handler(text="Help")
 async def send_help(message: types.Message):
-    chat_id = message.from_user.id
-    await bot.send_message(chat_id, text('With this bot, you can view the statistics of your dotabuff profile.',
-                                         'Commands you can use:',
-                                         '/addprofile',
-                                         '/deleteprofile',
-                                         '/stats',
-                                         sep='\n'))
+    await message.answer(text('With this bot, you can view the statistics of your dotabuff profile.',
+                              'Commands you can use:',
+                              '/addprofile',
+                              '/deleteprofile',
+                              '/stats',
+                              sep='\n'), reply_markup=kb.all_kb)
 
 
-@dp.message_handler(commands=['addprofile'])
+@dp.message_handler(text="Add profile")
 async def add_profile(message: types.Message):
     Session = sessionmaker(bind=engine)
     session = Session()
     chat_id = message.from_user.id
     elements = session.query(Dotabaff_db).filter(Dotabaff_db.chat_id == chat_id).all()
+
     if len(elements) == 0:
         await Form.dotabuff.set()
-        await bot.send_message(chat_id, 'Enter a link to your dotabuff account.')
+        await message.answer('Enter a link to your dotabuff account.', reply_markup=kb.cancel_kb)
     else:
-        await bot.send_message(chat_id, 'Your profile is available in the database. Delete it, and then try again.')
+        await message.answer('Your profile is available in the database. Delete it, and then try again.',
+                             reply_markup=kb.all_kb)
         session.close()
 
 
 @dp.message_handler(state='*', commands='cancel')
-@dp.message_handler(Text(equals='cancel', ignore_case=True), state='*')
+@dp.message_handler(Text(equals='Cancel', ignore_case=True), state='*')
 async def cancel_handler(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
-    chat_id = message.from_user.id
 
     if current_state is None:
         return
 
     logging.info('Cancelling state %r', current_state)
     await state.finish()
-    await bot.send_message(chat_id, 'Canceled')
+    await message.answer('Canceled', reply_markup=kb.all_kb)
 
 
 @dp.message_handler(state=Form.dotabuff)
@@ -87,27 +89,28 @@ async def process_add(message: types.Message, state: FSMContext):
     session.commit()
     session.close()
     await state.finish()
-    await bot.send_message(chat_id, 'Your profile was successfully added.')
+    await message.answer('Your profile was successfully added.', reply_markup=kb.all_kb)
 
 
-@dp.message_handler(commands='deleteprofile')
+@dp.message_handler(text='Delete profile')
 async def delete_handler(message: types.Message):
     Session = sessionmaker(bind=engine)
     session = Session()
     chat_id = str(message.from_user.id)
     elements = session.query(Dotabaff_db).filter(Dotabaff_db.chat_id == chat_id).all()
+
     if len(elements) != 0:
         session.query(Dotabaff_db).filter(Dotabaff_db.chat_id == chat_id).delete()
         session.commit()
         session.close()
-        await bot.send_message(chat_id, 'Your profile was successfully deleted.')
+        await message.answer('Your profile was successfully deleted.', reply_markup=kb.all_kb)
 
     if len(elements) == 0:
         session.close()
-        await bot.send_message(chat_id, "The linked profile was not detected.")
+        await message.answer("The linked profile was not detected.", reply_markup=kb.all_kb)
 
 
-@dp.message_handler(commands=['stats'])
+@dp.message_handler(text="Show statistic")
 async def stats_info(message: types.Message):
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -115,15 +118,33 @@ async def stats_info(message: types.Message):
     elements = session.query(Dotabaff_db).filter(Dotabaff_db.chat_id == chat_id).first()
     url = elements.dotabuff
     result = parse(url)
-    await bot.send_message(chat_id, text('Profile name: ' + result['player_name'],
-                                         'Last match: ' + result['last_match'],
-                                         'Wins: ' + result['wins'],
-                                         'Losses: ' + result['losses'],
-                                         'Abandons: ' + result['abandons'],
-                                         'Win ratio: ' + result['win_rate'],
-                                         sep='\n'
-                                         ))
 
+    if elements is None:
+        await message.answer('There is no profile in the database. Click on the "Add profile" button and add your '
+                             'DotaBuff profile')
+    else:
+        if result is not None:
+            if result == 1:
+                await message.answer(text("An error has occurred. Please try again."), reply_markup=kb.all_kb)
+            else:
+                await message.answer(text('Profile name: ' + result['player_name'],
+                                          'Last match: ' + result['last_match'],
+                                          'Wins: ' + result['wins'],
+                                          'Losses: ' + result['losses'],
+                                          'Abandons: ' + result['abandons'],
+                                          'Win ratio: ' + result['win_rate'],
+                                          '____________________________________',
+                                          result['ts_data_overview'],
+                                          f"Total statistic: {result['profile-qual']}",
+                                          f"{result['ts_recent_text']}: {result['ts_recent_score']}",
+                                          f"{result['ts_total_text']}: {result['ts_total_score']}",
+                                          f"{result['ts_plus_text']}: {result['ts_plus_score']}",
+
+                                          sep='\n'
+                                          ), reply_markup=kb.all_kb)
+        else:
+            await message.answer(text("You entered the wrong link. Please delete it and enter the link related to the "
+                                      "player's profile on the site https://www.dotabuff.com/."),reply_markup=kb.all_kb)
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
